@@ -3,13 +3,16 @@ from __future__ import annotations
 import ctypes as ct
 import math
 
+from sim_compare.control_spaces import ESMINI_SIMPLE_CONTROL_SPACE
 from sim_compare.bridges.esmini_runtime import EsminiRuntime, SESimpleVehicleState
-from sim_compare.models import EsminiControlCommand, InitialPose, VehicleState
+from sim_compare.models import AppliedControlCommand, InitialPose, VehicleState
 from sim_compare.simple_vehicle_config import SimpleVehicleConfig
 
 
 class EsminiSimpleVehicleBridge:
     backend_name = "simple_vehicle_api"
+    simulator_name = "esmini"
+    control_space = ESMINI_SIMPLE_CONTROL_SPACE
 
     def __init__(
         self,
@@ -107,7 +110,7 @@ class EsminiSimpleVehicleBridge:
 
     def step(
         self,
-        control: EsminiControlCommand,
+        control: AppliedControlCommand,
         dt_s: float,
         timestamp_s: float,
     ) -> VehicleState:

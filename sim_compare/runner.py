@@ -2,25 +2,49 @@ from __future__ import annotations
 
 import sys
 
-from sim_compare.bridges.carla import CarlaBridge
-from sim_compare.bridges.esmini import create_esmini_bridge
 from sim_compare.bridges.esmini_scenario import read_front_axle_max_steering_rad
 from sim_compare.config import ExperimentConfig
-from sim_compare.controls.bridge import carla_control_to_esmini_control
-from sim_compare.controls.sources import (
-    KeyboardControlSource,
-    SeriesControlSource,
+from sim_compare.control_mapping import (
+    ControlMappingContext,
+    get_control_mapper,
+    normalized_to_control_space,
 )
+from sim_compare.control_spaces import normalize_control_space
+from sim_compare.controls.sources import KeyboardControlSource, SeriesControlSource
 from sim_compare.logging import ComparisonCsvLogger
 from sim_compare.maps import build_esmini_search_paths, resolve_map_paths
-from sim_compare.models import CarlaControlCommand
+from sim_compare.models import InputControlCommand
 from sim_compare.plotting import render_svg_from_csv
+from sim_compare.simulators import build_simulator_adapter, make_csv_prefix
+from sim_compare.simulators.base import SimulatorAdapter
 from sim_compare.visualization import CarlaCameraDisplay
 
 
 class ExperimentRunner:
     def __init__(self, config: ExperimentConfig):
         self.config = config
+
+    def _build_simulators(
+        self,
+        map_paths,
+        search_paths,
+    ) -> tuple[SimulatorAdapter, SimulatorAdapter]:
+        cfg = self.config
+        reference = build_simulator_adapter(
+            cfg.reference_simulator.simulator_id,
+            cfg,
+            map_paths,
+            search_paths,
+            label=cfg.reference_simulator.label,
+        )
+        candidate = build_simulator_adapter(
+            cfg.candidate_simulator.simulator_id,
+            cfg,
+            map_paths,
+            search_paths,
+            label=cfg.candidate_simulator.label,
+        )
+        return reference, candidate
 
     def _poll_render_window_close(self, pygame_module) -> bool:
         for event in pygame_module.event.get():
@@ -35,6 +59,7 @@ class ExperimentRunner:
 
     def run(self) -> int:
         cfg = self.config
+        control_source_space = normalize_control_space(cfg.control_source_space)
         if cfg.input_mode == "series" and cfg.control_csv is None:
             print("--control-csv is required when --input-mode series", file=sys.stderr)
             return 2
@@ -44,6 +69,21 @@ class ExperimentRunner:
         if cfg.max_steps <= 0:
             print("--max-steps must be > 0", file=sys.stderr)
             return 2
+        if cfg.reference_simulator.simulator_id == cfg.candidate_simulator.simulator_id:
+            print(
+                "Comparing two instances of the same simulator is not supported by the current CLI/config yet.",
+                file=sys.stderr,
+            )
+            return 2
+        if make_csv_prefix(cfg.reference_simulator.label) == make_csv_prefix(
+            cfg.candidate_simulator.label
+        ):
+            print(
+                "Reference and candidate labels resolve to the same CSV prefix. "
+                "Choose distinct --reference-label / --candidate-label values.",
+                file=sys.stderr,
+            )
+            return 2
 
         try:
             map_paths = resolve_map_paths(cfg.project_root, cfg.map_name)
@@ -51,33 +91,41 @@ class ExperimentRunner:
             print(str(exc), file=sys.stderr)
             return 2
 
-        esmini_lib = cfg.esmini_home / "bin" / "libesminiLib.so"
-        if not esmini_lib.exists():
-            print(f"esmini library not found: {esmini_lib}", file=sys.stderr)
-            return 2
+        requires_esmini = "esmini" in {
+            cfg.reference_simulator.simulator_id,
+            cfg.candidate_simulator.simulator_id,
+        }
+        if requires_esmini:
+            esmini_lib = cfg.esmini_home / "bin" / "libesminiLib.so"
+            if not esmini_lib.exists():
+                print(f"esmini library not found: {esmini_lib}", file=sys.stderr)
+                return 2
 
-        render_carla = bool(cfg.render_carla or cfg.input_mode == "keyboard")
-        search_paths = build_esmini_search_paths(
-            cfg.esmini_home,
-            map_paths,
-            cfg.extra_esmini_paths,
+        render_camera = bool(cfg.render_camera or cfg.input_mode == "keyboard")
+        search_paths = (
+            build_esmini_search_paths(
+                cfg.esmini_home,
+                map_paths,
+                cfg.extra_esmini_paths,
+            )
+            if requires_esmini
+            else []
         )
 
         pygame_module = None
         clock = None
         display = None
         control_source = None
-        esmini = None
-        carla = None
+        simulators: list[SimulatorAdapter] = []
         csv_logger = None
 
         try:
-            if render_carla:
+            if render_camera:
                 import pygame  # pylint: disable=import-outside-toplevel
 
                 pygame.init()
                 pygame.font.init()
-                pygame.display.set_caption("CARLA/esmini compare")
+                pygame.display.set_caption("Simulator compare")
                 pygame_module = pygame
                 clock = pygame.time.Clock()
 
@@ -95,57 +143,68 @@ class ExperimentRunner:
                 map_paths.xosc_path,
                 ego_name="Ego",
             )
-
-            esmini = create_esmini_bridge(
-                esmini_home=cfg.esmini_home,
-                xosc_path=map_paths.xosc_path,
-                search_paths=search_paths,
-                ego_index=cfg.ego_index,
-                options=cfg.esmini_options,
-                backend=cfg.esmini_backend,
+            mapping_context = ControlMappingContext(
+                max_steering_angle_rad=max_steering_angle_rad
             )
-            esmini.set_initial_pose(cfg.initial_pose)
-            esmini.start()
+            control_mapper = get_control_mapper(cfg.control_mapping_strategy)
 
-            carla = CarlaBridge(
-                host=cfg.carla_host,
-                port=cfg.carla_port,
-                timeout_s=cfg.carla_timeout,
-                traffic_manager_port=cfg.traffic_manager_port,
-                vehicle_filter=cfg.carla_vehicle_filter,
-                xodr_path=map_paths.xodr_path,
-                dt_s=cfg.dt,
-                coordinate_transform=cfg.coordinate_transform,
-                opendrive_config=cfg.carla_opendrive,
-            )
-            carla.spawn_vehicle(cfg.initial_pose)
+            reference, candidate = self._build_simulators(map_paths, search_paths)
+            simulators = [reference, candidate]
+            for simulator in simulators:
+                simulator.start(cfg.initial_pose)
 
-            if render_carla:
-                width, height = cfg.resolution
-                display = CarlaCameraDisplay(
-                    pygame_module,
-                    carla.actor,
-                    width,
-                    height,
-                    cfg.gamma,
+            if render_camera:
+                render_target = next(
+                    (
+                        simulator.get_render_actor()
+                        for simulator in simulators
+                        if simulator.get_render_actor() is not None
+                    ),
+                    None,
                 )
+                if render_target is not None:
+                    width, height = cfg.resolution
+                    display = CarlaCameraDisplay(
+                        pygame_module,
+                        render_target,
+                        width,
+                        height,
+                        cfg.gamma,
+                    )
 
-            csv_logger = ComparisonCsvLogger(cfg.csv_out)
-
-            initial_carla_control = CarlaControlCommand()
-            initial_esmini_control = carla_control_to_esmini_control(
-                initial_carla_control,
-                cfg.esmini_backend.mode,
-                max_steering_angle_rad,
+            csv_logger = ComparisonCsvLogger(
+                cfg.csv_out,
+                reference=reference.descriptor,
+                candidate=candidate.descriptor,
             )
-            initial_carla_state = carla.get_state(0.0)
-            initial_esmini_state = esmini.get_state(0.0)
+
+            initial_input_control = InputControlCommand()
+            source_native_control = normalized_to_control_space(
+                control_source_space,
+                initial_input_control,
+                mapping_context,
+            )
+            initial_reference_control = control_mapper.map(
+                source_native_control,
+                reference.descriptor.control_space,
+                mapping_context,
+            )
+            initial_candidate_control = control_mapper.map(
+                source_native_control,
+                candidate.descriptor.control_space,
+                mapping_context,
+            )
+            initial_reference_state = reference.get_state(0.0)
+            initial_candidate_state = candidate.get_state(0.0)
             initial_diffs = csv_logger.write(
                 0,
-                initial_carla_control,
-                initial_esmini_control,
-                initial_carla_state,
-                initial_esmini_state,
+                initial_input_control,
+                control_source_space,
+                control_mapper.name,
+                initial_reference_control,
+                initial_candidate_control,
+                initial_reference_state,
+                initial_candidate_state,
             )
 
             sum_abs_pos = initial_diffs["diff_pos_2d"]
@@ -169,15 +228,29 @@ class ExperimentRunner:
                 if should_stop:
                     break
 
-                esmini_control = carla_control_to_esmini_control(
+                source_native_control = normalized_to_control_space(
+                    control_source_space,
                     current_control,
-                    cfg.esmini_backend.mode,
-                    max_steering_angle_rad,
+                    mapping_context,
+                )
+                reference_control = control_mapper.map(
+                    source_native_control,
+                    reference.descriptor.control_space,
+                    mapping_context,
+                )
+                candidate_control = control_mapper.map(
+                    source_native_control,
+                    candidate.descriptor.control_space,
+                    mapping_context,
                 )
                 next_sim_time_s = sim_time_s + cfg.dt
-                carla_state = carla.step(current_control, next_sim_time_s)
-                esmini_state = esmini.step(
-                    esmini_control,
+                reference_state = reference.step(
+                    reference_control,
+                    cfg.dt,
+                    next_sim_time_s,
+                )
+                candidate_state = candidate.step(
+                    candidate_control,
                     cfg.dt,
                     next_sim_time_s,
                 )
@@ -186,9 +259,12 @@ class ExperimentRunner:
                 diffs = csv_logger.write(
                     step,
                     current_control,
-                    esmini_control,
-                    carla_state,
-                    esmini_state,
+                    control_source_space,
+                    control_mapper.name,
+                    reference_control,
+                    candidate_control,
+                    reference_state,
+                    candidate_state,
                 )
                 sum_abs_pos += diffs["diff_pos_2d"]
                 sum_abs_speed += abs(diffs["diff_speed"])
@@ -199,7 +275,10 @@ class ExperimentRunner:
                 if cfg.print_every > 0 and step % cfg.print_every == 0:
                     print(
                         f"[{step:05d}] t={sim_time_s:6.2f}s "
-                        f"esmini={cfg.esmini_backend.mode} "
+                        f"ref={reference.descriptor.label}({reference.descriptor.backend_name}) "
+                        f"cand={candidate.descriptor.label}({candidate.descriptor.backend_name}) "
+                        f"src={control_source_space} "
+                        f"map={control_mapper.name} "
                         f"ctrl(thr={current_control.throttle:.2f}, "
                         f"brk={current_control.brake:.2f}, "
                         f"str={current_control.steer:.2f}, "
@@ -214,7 +293,16 @@ class ExperimentRunner:
                         [
                             f"map: {cfg.map_name}",
                             f"time: {sim_time_s:.2f}s",
-                            f"esmini backend: {cfg.esmini_backend.mode}",
+                            (
+                                f"ref: {reference.descriptor.label} "
+                                f"({reference.descriptor.simulator_id}, {reference.descriptor.backend_name})"
+                            ),
+                            (
+                                f"cand: {candidate.descriptor.label} "
+                                f"({candidate.descriptor.simulator_id}, {candidate.descriptor.backend_name})"
+                            ),
+                            f"source space: {control_source_space}",
+                            f"mapping: {control_mapper.name}",
                             (
                                 "ctrl: "
                                 f"thr={current_control.throttle:.2f} "
@@ -232,7 +320,7 @@ class ExperimentRunner:
                         ]
                     )
 
-                if esmini.should_quit():
+                if any(simulator.should_quit() for simulator in simulators):
                     break
 
             if steps_done == 0:
@@ -246,7 +334,10 @@ class ExperimentRunner:
                     plot_path = render_svg_from_csv(
                         cfg.csv_out,
                         output_path=cfg.plot_out,
-                        title=f"CARLA vs esmini Trajectory: {cfg.map_name}",
+                        title=(
+                            f"{reference.descriptor.label} vs "
+                            f"{candidate.descriptor.label} Trajectory: {cfg.map_name}"
+                        ),
                     )
                 print(f"Done. map={cfg.map_name} log={cfg.csv_out}")
                 if plot_path is not None:
@@ -273,14 +364,9 @@ class ExperimentRunner:
                     control_source.close()
                 except Exception:
                     pass
-            if carla is not None:
+            for simulator in reversed(simulators):
                 try:
-                    carla.close()
-                except Exception:
-                    pass
-            if esmini is not None:
-                try:
-                    esmini.close()
+                    simulator.close()
                 except Exception:
                     pass
             if pygame_module is not None:

@@ -5,55 +5,63 @@ import math
 from pathlib import Path
 
 from sim_compare.models import (
-    CarlaControlCommand,
-    EsminiControlCommand,
+    AppliedControlCommand,
+    InputControlCommand,
     VehicleState,
 )
+from sim_compare.simulators.base import SimulatorDescriptor
 from sim_compare.utils import normalize_yaw_rad
 
 
-CSV_FIELDS = [
+INPUT_CONTROL_FIELDS = [
+    "input_control_throttle",
+    "input_control_brake",
+    "input_control_steer",
+    "input_control_hand_brake",
+    "input_control_reverse",
+]
+COMPARISON_METADATA_FIELDS = [
     "step",
     "sim_time_s",
-    "carla_control_throttle",
-    "carla_control_brake",
-    "carla_control_steer",
-    "carla_control_hand_brake",
-    "carla_control_reverse",
-    "esmini_control_throttle",
-    "esmini_control_brake",
-    "esmini_control_steer",
-    "esmini_control_pedal",
-    "esmini_control_steering_angle_rad",
-    "esmini_control_backend",
-    "esmini_control_hand_brake",
-    "esmini_control_reverse",
-    "carla_x",
-    "carla_y",
-    "carla_z",
-    "carla_yaw",
-    "carla_speed",
-    "carla_acceleration",
-    "carla_vel_x",
-    "carla_vel_y",
-    "carla_vel_z",
-    "carla_ax",
-    "carla_ay",
-    "carla_az",
-    "esmini_x",
-    "esmini_y",
-    "esmini_z",
-    "esmini_yaw",
-    "esmini_speed",
-    "esmini_acceleration",
-    "esmini_vel_x",
-    "esmini_vel_y",
-    "esmini_vel_z",
-    "esmini_ax",
-    "esmini_ay",
-    "esmini_az",
-    "esmini_wheel_angle",
-    "esmini_wheel_rotation",
+    *INPUT_CONTROL_FIELDS,
+    "control_source_space",
+    "control_mapping_strategy",
+    "reference_simulator_id",
+    "reference_label",
+    "reference_csv_prefix",
+    "reference_backend",
+    "candidate_simulator_id",
+    "candidate_label",
+    "candidate_csv_prefix",
+    "candidate_backend",
+]
+CONTROL_SUFFIXES = [
+    "control_throttle",
+    "control_brake",
+    "control_steer",
+    "control_pedal",
+    "control_steering_angle_rad",
+    "control_space",
+    "control_hand_brake",
+    "control_reverse",
+]
+STATE_SUFFIXES = [
+    "x",
+    "y",
+    "z",
+    "yaw",
+    "speed",
+    "acceleration",
+    "vel_x",
+    "vel_y",
+    "vel_z",
+    "ax",
+    "ay",
+    "az",
+    "wheel_angle",
+    "wheel_rotation",
+]
+DIFF_FIELDS = [
     "diff_x",
     "diff_y",
     "diff_z",
@@ -65,85 +73,136 @@ CSV_FIELDS = [
 ]
 
 
+def _prefixed_fields(prefix: str, suffixes: list[str]) -> list[str]:
+    return [f"{prefix}_{suffix}" for suffix in suffixes]
+
+
+def build_csv_fields(
+    reference_prefix: str,
+    candidate_prefix: str,
+) -> list[str]:
+    return [
+        *COMPARISON_METADATA_FIELDS,
+        *_prefixed_fields(reference_prefix, CONTROL_SUFFIXES),
+        *_prefixed_fields(candidate_prefix, CONTROL_SUFFIXES),
+        *_prefixed_fields(reference_prefix, STATE_SUFFIXES),
+        *_prefixed_fields(candidate_prefix, STATE_SUFFIXES),
+        *DIFF_FIELDS,
+    ]
+
+
 def compute_state_differences(
-    carla_state: VehicleState,
-    esmini_state: VehicleState,
+    reference_state: VehicleState,
+    candidate_state: VehicleState,
 ) -> dict[str, float]:
-    diff_x = carla_state.x - esmini_state.x
-    diff_y = carla_state.y - esmini_state.y
-    diff_z = carla_state.z - esmini_state.z
+    diff_x = reference_state.x - candidate_state.x
+    diff_y = reference_state.y - candidate_state.y
+    diff_z = reference_state.z - candidate_state.z
     return {
         "diff_x": diff_x,
         "diff_y": diff_y,
         "diff_z": diff_z,
-        "diff_yaw": normalize_yaw_rad(carla_state.yaw - esmini_state.yaw),
-        "diff_speed": carla_state.speed - esmini_state.speed,
-        "diff_acceleration": carla_state.acceleration - esmini_state.acceleration,
+        "diff_yaw": normalize_yaw_rad(reference_state.yaw - candidate_state.yaw),
+        "diff_speed": reference_state.speed - candidate_state.speed,
+        "diff_acceleration": (
+            reference_state.acceleration - candidate_state.acceleration
+        ),
         "diff_pos_2d": math.sqrt(diff_x * diff_x + diff_y * diff_y),
         "diff_pos_3d": math.sqrt(diff_x * diff_x + diff_y * diff_y + diff_z * diff_z),
     }
 
 
 class ComparisonCsvLogger:
-    def __init__(self, csv_path: Path):
+    def __init__(
+        self,
+        csv_path: Path,
+        reference: SimulatorDescriptor,
+        candidate: SimulatorDescriptor,
+    ):
         self.csv_path = csv_path
+        self.reference = reference
+        self.candidate = candidate
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
         self.handle = self.csv_path.open("w", newline="", encoding="utf-8")
-        self.writer = csv.DictWriter(self.handle, fieldnames=CSV_FIELDS)
+        self.writer = csv.DictWriter(
+            self.handle,
+            fieldnames=build_csv_fields(reference.csv_prefix, candidate.csv_prefix),
+        )
         self.writer.writeheader()
+
+    def _control_row(
+        self,
+        prefix: str,
+        control: AppliedControlCommand,
+    ) -> dict[str, str | int]:
+        return {
+            f"{prefix}_control_throttle": f"{control.throttle:.4f}",
+            f"{prefix}_control_brake": f"{control.brake:.4f}",
+            f"{prefix}_control_steer": f"{control.steer:.4f}",
+            f"{prefix}_control_pedal": f"{control.pedal:.4f}",
+            f"{prefix}_control_steering_angle_rad": f"{control.steering_angle_rad:.6f}",
+            f"{prefix}_control_space": control.control_space,
+            f"{prefix}_control_hand_brake": int(control.hand_brake),
+            f"{prefix}_control_reverse": int(control.reverse),
+        }
+
+    def _state_row(
+        self,
+        prefix: str,
+        state: VehicleState,
+    ) -> dict[str, str]:
+        return {
+            f"{prefix}_x": f"{state.x:.6f}",
+            f"{prefix}_y": f"{state.y:.6f}",
+            f"{prefix}_z": f"{state.z:.6f}",
+            f"{prefix}_yaw": f"{state.yaw:.6f}",
+            f"{prefix}_speed": f"{state.speed:.6f}",
+            f"{prefix}_acceleration": f"{state.acceleration:.6f}",
+            f"{prefix}_vel_x": f"{state.vel_x:.6f}",
+            f"{prefix}_vel_y": f"{state.vel_y:.6f}",
+            f"{prefix}_vel_z": f"{state.vel_z:.6f}",
+            f"{prefix}_ax": f"{state.ax:.6f}",
+            f"{prefix}_ay": f"{state.ay:.6f}",
+            f"{prefix}_az": f"{state.az:.6f}",
+            f"{prefix}_wheel_angle": f"{state.wheel_angle:.6f}",
+            f"{prefix}_wheel_rotation": f"{state.wheel_rotation:.6f}",
+        }
 
     def write(
         self,
         step: int,
-        carla_control: CarlaControlCommand,
-        esmini_control: EsminiControlCommand,
-        carla_state: VehicleState,
-        esmini_state: VehicleState,
+        input_control: InputControlCommand,
+        control_source_space: str,
+        control_mapping_strategy: str,
+        reference_control: AppliedControlCommand,
+        candidate_control: AppliedControlCommand,
+        reference_state: VehicleState,
+        candidate_state: VehicleState,
     ) -> dict[str, float]:
-        diffs = compute_state_differences(carla_state, esmini_state)
+        diffs = compute_state_differences(reference_state, candidate_state)
         self.writer.writerow(
             {
                 "step": step,
-                "sim_time_s": f"{carla_state.timestamp_s:.3f}",
-                "carla_control_throttle": f"{carla_control.throttle:.4f}",
-                "carla_control_brake": f"{carla_control.brake:.4f}",
-                "carla_control_steer": f"{carla_control.steer:.4f}",
-                "carla_control_hand_brake": int(carla_control.hand_brake),
-                "carla_control_reverse": int(carla_control.reverse),
-                "esmini_control_throttle": f"{esmini_control.throttle:.4f}",
-                "esmini_control_brake": f"{esmini_control.brake:.4f}",
-                "esmini_control_steer": f"{esmini_control.steer:.4f}",
-                "esmini_control_pedal": f"{esmini_control.pedal:.4f}",
-                "esmini_control_steering_angle_rad": f"{esmini_control.steering_angle_rad:.6f}",
-                "esmini_control_backend": esmini_control.backend,
-                "esmini_control_hand_brake": int(esmini_control.hand_brake),
-                "esmini_control_reverse": int(esmini_control.reverse),
-                "carla_x": f"{carla_state.x:.6f}",
-                "carla_y": f"{carla_state.y:.6f}",
-                "carla_z": f"{carla_state.z:.6f}",
-                "carla_yaw": f"{carla_state.yaw:.6f}",
-                "carla_speed": f"{carla_state.speed:.6f}",
-                "carla_acceleration": f"{carla_state.acceleration:.6f}",
-                "carla_vel_x": f"{carla_state.vel_x:.6f}",
-                "carla_vel_y": f"{carla_state.vel_y:.6f}",
-                "carla_vel_z": f"{carla_state.vel_z:.6f}",
-                "carla_ax": f"{carla_state.ax:.6f}",
-                "carla_ay": f"{carla_state.ay:.6f}",
-                "carla_az": f"{carla_state.az:.6f}",
-                "esmini_x": f"{esmini_state.x:.6f}",
-                "esmini_y": f"{esmini_state.y:.6f}",
-                "esmini_z": f"{esmini_state.z:.6f}",
-                "esmini_yaw": f"{esmini_state.yaw:.6f}",
-                "esmini_speed": f"{esmini_state.speed:.6f}",
-                "esmini_acceleration": f"{esmini_state.acceleration:.6f}",
-                "esmini_vel_x": f"{esmini_state.vel_x:.6f}",
-                "esmini_vel_y": f"{esmini_state.vel_y:.6f}",
-                "esmini_vel_z": f"{esmini_state.vel_z:.6f}",
-                "esmini_ax": f"{esmini_state.ax:.6f}",
-                "esmini_ay": f"{esmini_state.ay:.6f}",
-                "esmini_az": f"{esmini_state.az:.6f}",
-                "esmini_wheel_angle": f"{esmini_state.wheel_angle:.6f}",
-                "esmini_wheel_rotation": f"{esmini_state.wheel_rotation:.6f}",
+                "sim_time_s": f"{reference_state.timestamp_s:.3f}",
+                "input_control_throttle": f"{input_control.throttle:.4f}",
+                "input_control_brake": f"{input_control.brake:.4f}",
+                "input_control_steer": f"{input_control.steer:.4f}",
+                "input_control_hand_brake": int(input_control.hand_brake),
+                "input_control_reverse": int(input_control.reverse),
+                "control_source_space": control_source_space,
+                "control_mapping_strategy": control_mapping_strategy,
+                "reference_simulator_id": self.reference.simulator_id,
+                "reference_label": self.reference.label,
+                "reference_csv_prefix": self.reference.csv_prefix,
+                "reference_backend": self.reference.backend_name,
+                "candidate_simulator_id": self.candidate.simulator_id,
+                "candidate_label": self.candidate.label,
+                "candidate_csv_prefix": self.candidate.csv_prefix,
+                "candidate_backend": self.candidate.backend_name,
+                **self._control_row(self.reference.csv_prefix, reference_control),
+                **self._control_row(self.candidate.csv_prefix, candidate_control),
+                **self._state_row(self.reference.csv_prefix, reference_state),
+                **self._state_row(self.candidate.csv_prefix, candidate_state),
                 "diff_x": f"{diffs['diff_x']:.6f}",
                 "diff_y": f"{diffs['diff_y']:.6f}",
                 "diff_z": f"{diffs['diff_z']:.6f}",

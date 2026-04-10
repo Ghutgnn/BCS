@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import html
-import math
 from pathlib import Path
 
 
@@ -13,6 +12,18 @@ PLOT_TOP = 80
 PLOT_RIGHT = 1120
 PLOT_BOTTOM = 880
 LEGEND_X = 1160
+SIMULATOR_COLORS = [
+    {
+        "dark": (26, 115, 232),
+        "light": (219, 233, 255),
+        "stroke": "rgb(26,115,232)",
+    },
+    {
+        "dark": (220, 96, 24),
+        "light": (255, 230, 212),
+        "stroke": "rgb(220,96,24)",
+    },
+]
 
 
 def _parse_rows(csv_path: Path) -> list[dict[str, float | str]]:
@@ -33,16 +44,42 @@ def _parse_rows(csv_path: Path) -> list[dict[str, float | str]]:
 
 
 def _mix_rgb(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> str:
-    t = max(0.0, min(1.0, t))
-    mixed = tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
+    clamped_t = max(0.0, min(1.0, t))
+    mixed = tuple(round(a[i] + (b[i] - a[i]) * clamped_t) for i in range(3))
     return f"rgb({mixed[0]},{mixed[1]},{mixed[2]})"
+
+
+def _get_participant_info(
+    rows: list[dict[str, float | str]],
+) -> tuple[dict[str, str], dict[str, str]]:
+    first = rows[0]
+    reference_prefix = str(first.get("reference_csv_prefix", "carla"))
+    candidate_prefix = str(first.get("candidate_csv_prefix", "esmini"))
+    reference = {
+        "prefix": reference_prefix,
+        "label": str(first.get("reference_label", reference_prefix)),
+        "simulator_id": str(first.get("reference_simulator_id", reference_prefix)),
+        "backend": str(first.get("reference_backend", "native")),
+    }
+    candidate = {
+        "prefix": candidate_prefix,
+        "label": str(first.get("candidate_label", candidate_prefix)),
+        "simulator_id": str(first.get("candidate_simulator_id", candidate_prefix)),
+        "backend": str(first.get("candidate_backend", "native")),
+    }
+    return reference, candidate
 
 
 def _compute_bounds(
     rows: list[dict[str, float | str]],
+    prefixes: tuple[str, str],
 ) -> tuple[float, float, float, float]:
-    xs = [row["carla_x"] for row in rows] + [row["esmini_x"] for row in rows]
-    ys = [row["carla_y"] for row in rows] + [row["esmini_y"] for row in rows]
+    xs = [row[f"{prefixes[0]}_x"] for row in rows] + [
+        row[f"{prefixes[1]}_x"] for row in rows
+    ]
+    ys = [row[f"{prefixes[0]}_y"] for row in rows] + [
+        row[f"{prefixes[1]}_y"] for row in rows
+    ]
     min_x = min(xs)
     max_x = max(xs)
     min_y = min(ys)
@@ -177,30 +214,38 @@ def _build_legend(
     rows: list[dict[str, float | str]],
     title: str,
     map_name: str,
-    carla_color: str,
-    esmini_color: str,
+    reference: dict[str, str],
+    candidate: dict[str, str],
+    reference_color: str,
+    candidate_color: str,
 ) -> str:
     mean_diff = sum(row["diff_pos_2d"] for row in rows) / len(rows)
     max_diff = max(row["diff_pos_2d"] for row in rows)
     final_diff = rows[-1]["diff_pos_2d"]
     max_speed = max(
-        max(row["carla_speed"], row["esmini_speed"]) for row in rows
+        max(
+            row[f"{reference['prefix']}_speed"],
+            row[f"{candidate['prefix']}_speed"],
+        )
+        for row in rows
     )
     parts = [
         f'<text x="{LEGEND_X}" y="92" font-size="24" font-weight="700" fill="#111827">{html.escape(title)}</text>',
         f'<text x="{LEGEND_X}" y="122" font-size="15" fill="#475467">map: {html.escape(map_name)}</text>',
-        f'<text x="{LEGEND_X}" y="170" font-size="16" font-weight="700" fill="#111827">Trajectory Overlay</text>',
-        f'<line x1="{LEGEND_X}" y1="200" x2="{LEGEND_X + 70}" y2="200" stroke="{carla_color}" stroke-width="6" stroke-linecap="round"/>',
-        f'<text x="{LEGEND_X + 88}" y="205" font-size="14" fill="#111827">CARLA trajectory</text>',
-        f'<line x1="{LEGEND_X}" y1="230" x2="{LEGEND_X + 70}" y2="230" stroke="{esmini_color}" stroke-width="6" stroke-linecap="round"/>',
-        f'<text x="{LEGEND_X + 88}" y="235" font-size="14" fill="#111827">esmini trajectory</text>',
-        f'<text x="{LEGEND_X}" y="282" font-size="16" font-weight="700" fill="#111827">Speed Encoding</text>',
-        f'<text x="{LEGEND_X}" y="308" font-size="14" fill="#475467">Lighter = slower, darker = faster</text>',
-        f'<text x="{LEGEND_X}" y="330" font-size="14" fill="#475467">max speed in log: {max_speed:.2f} m/s</text>',
-        f'<text x="{LEGEND_X}" y="392" font-size="16" font-weight="700" fill="#111827">Distance Summary</text>',
-        f'<text x="{LEGEND_X}" y="420" font-size="14" fill="#475467">mean 2D diff: {mean_diff:.3f} m</text>',
-        f'<text x="{LEGEND_X}" y="444" font-size="14" fill="#475467">max 2D diff: {max_diff:.3f} m</text>',
-        f'<text x="{LEGEND_X}" y="468" font-size="14" fill="#475467">final 2D diff: {final_diff:.3f} m</text>',
+        f'<text x="{LEGEND_X}" y="146" font-size="15" fill="#475467">reference: {html.escape(reference["label"])} ({html.escape(reference["backend"])})</text>',
+        f'<text x="{LEGEND_X}" y="168" font-size="15" fill="#475467">candidate: {html.escape(candidate["label"])} ({html.escape(candidate["backend"])})</text>',
+        f'<text x="{LEGEND_X}" y="212" font-size="16" font-weight="700" fill="#111827">Trajectory Overlay</text>',
+        f'<line x1="{LEGEND_X}" y1="242" x2="{LEGEND_X + 70}" y2="242" stroke="{reference_color}" stroke-width="6" stroke-linecap="round"/>',
+        f'<text x="{LEGEND_X + 88}" y="247" font-size="14" fill="#111827">{html.escape(reference["label"])} trajectory</text>',
+        f'<line x1="{LEGEND_X}" y1="272" x2="{LEGEND_X + 70}" y2="272" stroke="{candidate_color}" stroke-width="6" stroke-linecap="round"/>',
+        f'<text x="{LEGEND_X + 88}" y="277" font-size="14" fill="#111827">{html.escape(candidate["label"])} trajectory</text>',
+        f'<text x="{LEGEND_X}" y="330" font-size="16" font-weight="700" fill="#111827">Speed Encoding</text>',
+        f'<text x="{LEGEND_X}" y="356" font-size="14" fill="#475467">Lighter = slower, darker = faster</text>',
+        f'<text x="{LEGEND_X}" y="378" font-size="14" fill="#475467">max speed in log: {max_speed:.2f} m/s</text>',
+        f'<text x="{LEGEND_X}" y="440" font-size="16" font-weight="700" fill="#111827">Distance Summary</text>',
+        f'<text x="{LEGEND_X}" y="468" font-size="14" fill="#475467">mean 2D diff: {mean_diff:.3f} m</text>',
+        f'<text x="{LEGEND_X}" y="492" font-size="14" fill="#475467">max 2D diff: {max_diff:.3f} m</text>',
+        f'<text x="{LEGEND_X}" y="516" font-size="14" fill="#475467">final 2D diff: {final_diff:.3f} m</text>',
     ]
     return "\n".join(parts)
 
@@ -218,27 +263,33 @@ def render_svg_from_csv(
         output_path = csv_path.with_suffix(".svg")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    reference, candidate = _get_participant_info(rows)
     map_name = csv_path.stem.replace("comparison_", "")
-    plot_title = title or f"CARLA vs esmini Trajectory"
-    min_x, max_x, min_y, max_y = _compute_bounds(rows)
+    plot_title = title or f"{reference['label']} vs {candidate['label']} Trajectory"
+    min_x, max_x, min_y, max_y = _compute_bounds(
+        rows,
+        (reference["prefix"], candidate["prefix"]),
+    )
     project = _make_projector(min_x, max_x, min_y, max_y)
     max_speed = max(
-        max(row["carla_speed"], row["esmini_speed"]) for row in rows
+        max(
+            row[f"{reference['prefix']}_speed"],
+            row[f"{candidate['prefix']}_speed"],
+        )
+        for row in rows
     )
-    carla_dark = (26, 115, 232)
-    carla_light = (219, 233, 255)
-    esmini_dark = (220, 96, 24)
-    esmini_light = (255, 230, 212)
+    reference_colors = SIMULATOR_COLORS[0]
+    candidate_colors = SIMULATOR_COLORS[1]
 
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{SVG_WIDTH}" height="{SVG_HEIGHT}" viewBox="0 0 {SVG_WIDTH} {SVG_HEIGHT}">
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{SVG_WIDTH}" height="{SVG_HEIGHT}" viewBox="0 0 {SVG_WIDTH} {SVG_HEIGHT}">
 <rect width="100%" height="100%" fill="#f8fafc"/>
 {_build_grid(min_x, max_x, min_y, max_y, project)}
-{_build_segments(rows, "carla", carla_light, carla_dark, project, max_speed)}
-{_build_segments(rows, "esmini", esmini_light, esmini_dark, project, max_speed)}
-{_build_markers(rows, "carla", "rgb(26,115,232)", "CARLA", project)}
-{_build_markers(rows, "esmini", "rgb(220,96,24)", "esmini", project)}
-{_build_legend(rows, plot_title, map_name, "rgb(26,115,232)", "rgb(220,96,24)")}
+{_build_segments(rows, reference["prefix"], reference_colors["light"], reference_colors["dark"], project, max_speed)}
+{_build_segments(rows, candidate["prefix"], candidate_colors["light"], candidate_colors["dark"], project, max_speed)}
+{_build_markers(rows, reference["prefix"], reference_colors["stroke"], reference["label"], project)}
+{_build_markers(rows, candidate["prefix"], candidate_colors["stroke"], candidate["label"], project)}
+{_build_legend(rows, plot_title, map_name, reference, candidate, reference_colors["stroke"], candidate_colors["stroke"])}
 </svg>
-"""
+'''
     output_path.write_text(svg, encoding="utf-8")
     return output_path

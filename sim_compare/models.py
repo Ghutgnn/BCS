@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sim_compare.control_spaces import CARLA_CONTROL_SPACE
+
 
 @dataclass
-class CarlaControlCommand:
+class InputControlCommand:
     throttle: float = 0.0
     brake: float = 0.0
     steer: float = 0.0
@@ -13,8 +15,8 @@ class CarlaControlCommand:
 
 
 @dataclass
-class EsminiControlCommand:
-    backend: str = "simple_vehicle_api"
+class AppliedControlCommand:
+    control_space: str = CARLA_CONTROL_SPACE
     throttle: float = 0.0
     brake: float = 0.0
     steer: float = 0.0
@@ -50,3 +52,9 @@ class VehicleState:
     az: float
     wheel_angle: float
     wheel_rotation: float
+
+
+# Backward-compatible aliases while the rest of the codebase migrates.
+CanonicalControlCommand = InputControlCommand
+CarlaControlCommand = AppliedControlCommand
+EsminiControlCommand = AppliedControlCommand

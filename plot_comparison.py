@@ -12,7 +12,7 @@ from sim_compare.plotting import render_svg_from_csv
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Render a CARLA/esmini trajectory overlay SVG from a comparison CSV."
+        description="Render a paired-simulator trajectory overlay SVG from a comparison CSV."
     )
     parser.add_argument("csv_path", type=Path, help="comparison CSV path")
     parser.add_argument("--out", type=Path, default=None, help="output SVG path")

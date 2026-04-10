@@ -4,14 +4,14 @@ import csv
 from pathlib import Path
 from typing import Iterable, Protocol
 
-from sim_compare.models import CarlaControlCommand
+from sim_compare.models import InputControlCommand
 from sim_compare.utils import clamp
 
 
 class ControlSource(Protocol):
     def next(
         self, sim_time_s: float, step: int, milliseconds: int = 0
-    ) -> tuple[CarlaControlCommand, bool]:
+    ) -> tuple[InputControlCommand, bool]:
         ...
 
     def close(self) -> None:
@@ -29,7 +29,7 @@ class SeriesControlSource:
 
     def _load(
         self, csv_path: Path
-    ) -> Iterable[tuple[float | None, CarlaControlCommand]]:
+    ) -> Iterable[tuple[float | None, InputControlCommand]]:
         with csv_path.open("r", newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             required = {"throttle", "steer"}
@@ -45,7 +45,7 @@ class SeriesControlSource:
                 time_s = float(row["time_s"]) if timed and row["time_s"] else None
                 yield (
                     time_s,
-                    CarlaControlCommand(
+                    InputControlCommand(
                         throttle=clamp(
                             float(row.get("throttle", 0.0) or 0.0), 0.0, 1.0
                         ),
@@ -60,7 +60,7 @@ class SeriesControlSource:
 
     def next(
         self, sim_time_s: float, step: int, milliseconds: int = 0
-    ) -> tuple[CarlaControlCommand, bool]:
+    ) -> tuple[InputControlCommand, bool]:
         del milliseconds
         if self.timed:
             while self.index + 1 < len(self.rows):
@@ -90,12 +90,12 @@ class SeriesControlSource:
 class KeyboardControlSource:
     def __init__(self, pygame_module):
         self.pg = pygame_module
-        self.control = CarlaControlCommand()
+        self.control = InputControlCommand()
         self.steer_cache = 0.0
 
     def next(
         self, sim_time_s: float, step: int, milliseconds: int = 0
-    ) -> tuple[CarlaControlCommand, bool]:
+    ) -> tuple[InputControlCommand, bool]:
         del sim_time_s, step
         for event in self.pg.event.get():
             if event.type == self.pg.QUIT:
@@ -135,7 +135,7 @@ class KeyboardControlSource:
         self.control.steer = round(self.steer_cache, 1)
         self.control.hand_brake = bool(keys[self.pg.K_SPACE])
         return (
-            CarlaControlCommand(
+            InputControlCommand(
                 throttle=self.control.throttle,
                 brake=self.control.brake,
                 steer=self.control.steer,

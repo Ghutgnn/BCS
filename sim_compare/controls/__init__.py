@@ -1,1 +1,1 @@
-"""Control sources and cross-simulator control bridges."""
+"""Control-source implementations."""

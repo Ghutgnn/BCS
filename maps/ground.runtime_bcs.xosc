@@ -49,7 +49,7 @@
       <Init>
          <Actions>
             <Private entityRef="Ego">
-               <PrivateAction><TeleportAction><Position><WorldPosition x="50.000000000" y="0.000000000" z="0.0" h="0.000000000" p="0.0" r="0.0" /></Position></TeleportAction></PrivateAction><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time" /><SpeedActionTarget><AbsoluteTargetSpeed value="0.000000000" /></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction><PrivateAction><ControllerAction><ActivateControllerAction longitudinal="true" lateral="true" /></ControllerAction></PrivateAction></Private>
+               <PrivateAction><TeleportAction><Position><WorldPosition x="500.000000000" y="0.000000000" z="0.0" h="0.000000000" p="0.0" r="0.0" /></Position></TeleportAction></PrivateAction><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time" /><SpeedActionTarget><AbsoluteTargetSpeed value="0.000000000" /></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction><PrivateAction><ControllerAction><ActivateControllerAction longitudinal="true" lateral="true" /></ControllerAction></PrivateAction></Private>
          </Actions>
       </Init>
       <Story name="MyStory">

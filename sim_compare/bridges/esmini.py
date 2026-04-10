@@ -4,15 +4,18 @@ from pathlib import Path
 from typing import Protocol
 
 from sim_compare.bridges.esmini_runtime import EsminiRuntime
+from sim_compare.bridges.esmini_bcs_controller import EsminiBCSControllerBridge
 from sim_compare.bridges.esmini_simple_vehicle import EsminiSimpleVehicleBridge
-from sim_compare.bridges.esmini_udp_driver import EsminiBCSControllerBridge
 from sim_compare.config import EsminiBackendConfig, EsminiOptions
-from sim_compare.models import EsminiControlCommand, InitialPose, VehicleState
+from sim_compare.esmini_backend import normalize_esmini_backend_mode
+from sim_compare.models import AppliedControlCommand, InitialPose, VehicleState
 from sim_compare.simple_vehicle_config import load_simple_vehicle_config
 
 
 class EsminiBridge(Protocol):
     backend_name: str
+    simulator_name: str
+    control_space: str
 
     def start(self) -> None:
         ...
@@ -22,7 +25,7 @@ class EsminiBridge(Protocol):
 
     def step(
         self,
-        control: EsminiControlCommand,
+        control: AppliedControlCommand,
         dt_s: float,
         timestamp_s: float,
     ) -> VehicleState:
@@ -46,6 +49,7 @@ def create_esmini_bridge(
     options: EsminiOptions,
     backend: EsminiBackendConfig,
 ) -> EsminiBridge:
+    normalized_mode = normalize_esmini_backend_mode(backend.mode)
     runtime = EsminiRuntime(
         esmini_home=esmini_home,
         search_paths=search_paths,
@@ -53,7 +57,7 @@ def create_esmini_bridge(
         options=options,
     )
 
-    if backend.mode == "simple_vehicle_api":
+    if normalized_mode == "simple_vehicle_api":
         vehicle_config = None
         if backend.simple_vehicle_config_path is not None:
             vehicle_config = load_simple_vehicle_config(
@@ -64,7 +68,7 @@ def create_esmini_bridge(
             xosc_path=xosc_path,
             vehicle_config=vehicle_config,
         )
-    if backend.mode in {"udp_driver_controller", "bcs_controller"}:
+    if normalized_mode == "bcs_controller":
         return EsminiBCSControllerBridge(
             runtime=runtime,
             xosc_path=xosc_path,

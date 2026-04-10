@@ -43,6 +43,12 @@ class EsminiBackendConfig:
 
 
 @dataclass
+class SimulatorInstanceConfig:
+    simulator_id: str
+    label: str
+
+
+@dataclass
 class ExperimentConfig:
     project_root: Path
     map_name: str
@@ -53,14 +59,22 @@ class ExperimentConfig:
     input_mode: str
     control_csv: Path | None
     hold_last_control: bool
+    control_source_space: str
+    control_mapping_strategy: str
     dt: float
     max_steps: int
     csv_out: Path
     plot_out: Path | None
     print_every: int
-    render_carla: bool
+    render_camera: bool
     resolution: tuple[int, int]
     gamma: float
+    reference_simulator: SimulatorInstanceConfig = field(
+        default_factory=lambda: SimulatorInstanceConfig("carla", "carla")
+    )
+    candidate_simulator: SimulatorInstanceConfig = field(
+        default_factory=lambda: SimulatorInstanceConfig("esmini", "esmini")
+    )
     coordinate_transform: CoordinateTransformConfig = field(
         default_factory=CoordinateTransformConfig
     )

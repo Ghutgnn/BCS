@@ -68,7 +68,7 @@ Important limitation:
 
 Implementation:
 
-- `sim_compare/bridges/esmini_udp_driver.py`
+- `sim_compare/bridges/esmini_bcs_controller.py`
 - `sim_compare/bridges/esmini_scenario.py`
 
 Mechanism:

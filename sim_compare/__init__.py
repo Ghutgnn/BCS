@@ -1,1 +1,1 @@
-"""Research-oriented CARLA/esmini comparison framework."""
+"""Research-oriented paired-simulator comparison framework."""

@@ -13,15 +13,23 @@ from sim_compare.config import (
     EsminiBackendConfig,
     EsminiOptions,
     ExperimentConfig,
+    SimulatorInstanceConfig,
+)
+from sim_compare.control_mapping import CONTROL_MAPPERS
+from sim_compare.control_spaces import SUPPORTED_CONTROL_SPACES, normalize_control_space
+from sim_compare.esmini_backend import (
+    SUPPORTED_ESMINI_BACKENDS,
+    normalize_esmini_backend_mode,
 )
 from sim_compare.models import InitialPose
 from sim_compare.runner import ExperimentRunner
+from sim_compare.simulators import SUPPORTED_SIMULATORS, normalize_simulator_id
 from sim_compare.utils import parse_resolution
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compare CARLA and esmini on the same map, pose, and control."
+        description="Compare two simulator adapters on the same map, pose, and control."
     )
     parser.add_argument(
         "map_name", help="Map name under maps/: [map_name].xosc and [map_name].xodr"
@@ -52,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--esmini-backend",
-        choices=["simple_vehicle_api", "bcs_controller", "udp_driver_controller"],
+        choices=sorted(SUPPORTED_ESMINI_BACKENDS),
         default="simple_vehicle_api",
         help="simple_vehicle_api keeps the old SE_SimpleVehicle path; "
         "bcs_controller uses the custom esmini BCS controller over UDP; "
@@ -70,6 +78,28 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="TOML file describing esmini simple vehicle parameters",
     )
+    parser.add_argument(
+        "--reference-simulator",
+        choices=sorted(SUPPORTED_SIMULATORS),
+        default="carla",
+        help="Reference simulator used for diff sign and CSV prefix ordering",
+    )
+    parser.add_argument(
+        "--candidate-simulator",
+        choices=sorted(SUPPORTED_SIMULATORS),
+        default="esmini",
+        help="Candidate simulator compared against the reference simulator",
+    )
+    parser.add_argument(
+        "--reference-label",
+        default="carla",
+        help="CSV/display label for the reference simulator",
+    )
+    parser.add_argument(
+        "--candidate-label",
+        default="esmini",
+        help="CSV/display label for the candidate simulator",
+    )
 
     parser.add_argument("--carla-host", default="127.0.0.1")
     parser.add_argument("--carla-port", type=int, default=2000)
@@ -86,6 +116,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-mode", choices=["series", "keyboard"], required=True)
     parser.add_argument("--control-csv", type=Path, default=None)
     parser.add_argument("--hold-last-control", action="store_true")
+    parser.add_argument(
+        "--control-source-space",
+        choices=sorted(SUPPORTED_CONTROL_SPACES),
+        default="canonical.actuation",
+        help="Interpret the external input as native to this control space before mapping to each simulator",
+    )
+    parser.add_argument(
+        "--control-mapping-strategy",
+        choices=sorted(CONTROL_MAPPERS.keys()),
+        default="semantic_roundtrip",
+        help="Strategy used to map control between simulator control spaces",
+    )
 
     parser.add_argument("--dt", type=float, default=0.02)
     parser.add_argument("--max-steps", type=int, default=1000000)
@@ -93,7 +135,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plot-out", type=Path, default=None)
     parser.add_argument("--print-every", type=int, default=20)
 
-    parser.add_argument("--render-carla", action="store_true")
+    parser.add_argument(
+        "--render-camera",
+        "--render-carla",
+        action="store_true",
+        dest="render_camera",
+        help="Render the first simulator that exposes a camera/display target (currently CARLA)",
+    )
     parser.add_argument("--res", default="1920x1080")
     parser.add_argument("--gamma", type=float, default=2.2)
 
@@ -121,6 +169,10 @@ def main() -> int:
             simple_vehicle_config = (project_root / simple_vehicle_config).resolve()
         else:
             simple_vehicle_config = simple_vehicle_config.resolve()
+    normalized_esmini_backend = normalize_esmini_backend_mode(args.esmini_backend)
+    normalized_control_source_space = normalize_control_space(args.control_source_space)
+    reference_simulator = normalize_simulator_id(args.reference_simulator)
+    candidate_simulator = normalize_simulator_id(args.candidate_simulator)
 
     config = ExperimentConfig(
         project_root=project_root,
@@ -138,14 +190,24 @@ def main() -> int:
         input_mode=args.input_mode,
         control_csv=args.control_csv.resolve() if args.control_csv else None,
         hold_last_control=bool(args.hold_last_control),
+        control_source_space=normalized_control_source_space,
+        control_mapping_strategy=args.control_mapping_strategy,
         dt=float(args.dt),
         max_steps=int(args.max_steps),
         csv_out=csv_out.resolve(),
         plot_out=plot_out.resolve(),
         print_every=int(args.print_every),
-        render_carla=bool(args.render_carla),
+        render_camera=bool(args.render_camera),
         resolution=resolution,
         gamma=float(args.gamma),
+        reference_simulator=SimulatorInstanceConfig(
+            simulator_id=reference_simulator,
+            label=args.reference_label,
+        ),
+        candidate_simulator=SimulatorInstanceConfig(
+            simulator_id=candidate_simulator,
+            label=args.candidate_label,
+        ),
         coordinate_transform=CoordinateTransformConfig(
             invert_y=bool(args.invert_y),
             yaw_sign=float(args.yaw_sign),
@@ -160,7 +222,7 @@ def main() -> int:
         esmini_options=EsminiOptions(
             use_viewer=int(args.esmini_viewer),
             disable_controller=(
-                1 if args.esmini_backend == "simple_vehicle_api" else 0
+                1 if normalized_esmini_backend == "simple_vehicle_api" else 0
             ),
             window=(60, 60, resolution[0], resolution[1]),
             disable_stdout=False,
@@ -168,7 +230,7 @@ def main() -> int:
             dat_file_path=None,
         ),
         esmini_backend=EsminiBackendConfig(
-            mode=args.esmini_backend,
+            mode=normalized_esmini_backend,
             udp_base_port=int(args.esmini_udp_base_port),
             udp_exec_mode=args.esmini_udp_exec_mode,
             simple_vehicle_config_path=simple_vehicle_config,

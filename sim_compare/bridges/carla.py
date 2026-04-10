@@ -3,12 +3,16 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+from sim_compare.control_spaces import CARLA_CONTROL_SPACE
 from sim_compare.config import CarlaOpenDriveGenerationConfig, CoordinateTransformConfig
-from sim_compare.models import CarlaControlCommand, InitialPose, VehicleState
+from sim_compare.models import AppliedControlCommand, InitialPose, VehicleState
 from sim_compare.utils import clamp, normalize_yaw_rad
 
 
 class CarlaBridge:
+    simulator_name = "carla"
+    control_space = CARLA_CONTROL_SPACE
+
     def __init__(
         self,
         host: str,
@@ -120,7 +124,7 @@ class CarlaBridge:
             )
         self.world.tick()
 
-    def step(self, control: CarlaControlCommand, time_stamp_s: float) -> VehicleState:
+    def step(self, control: AppliedControlCommand, time_stamp_s: float) -> VehicleState:
         if self.actor is None:
             raise RuntimeError("CARLA actor not initialized")
 

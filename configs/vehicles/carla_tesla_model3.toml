@@ -13,15 +13,15 @@ name = "carla_tesla_model3"
 
 # Vehicle body / longitudinal behavior
 length_m = 4.69
-max_speed_mps = 60
-max_acceleration_mps2 = 6.5
+max_speed_mps = 60.0
+max_acceleration_mps2 = 8.0
 max_deceleration_mps2 = 10.0
 
 # Simple vehicle response tuning
-engine_brake_factor = 0.01
+engine_brake_factor = 0.0008
 steering_scale = 0.002
 steering_return_factor = 4.0
-steering_rate = 10
+steering_rate = 30.0
 
 # Keep controls active by default
 throttle_disabled = false
