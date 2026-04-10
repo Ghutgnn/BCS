@@ -1,0 +1,28 @@
+# Approximate esmini simple vehicle profile intended to reduce the gap to
+# CARLA's `vehicle.tesla.model3`. Tune against your own experiment logs.
+#
+# Units:
+# - length_m: meters
+# - max_speed_mps: meters / second
+# - max_acceleration_mps2: meters / second^2
+# - max_deceleration_mps2: meters / second^2
+# - steering_rate: internal simple-vehicle steering rate parameter
+
+[vehicle]
+name = "carla_tesla_model3"
+
+# Vehicle body / longitudinal behavior
+length_m = 4.69
+max_speed_mps = 60
+max_acceleration_mps2 = 6.5
+max_deceleration_mps2 = 10.0
+
+# Simple vehicle response tuning
+engine_brake_factor = 0.01
+steering_scale = 0.002
+steering_return_factor = 4.0
+steering_rate = 10
+
+# Keep controls active by default
+throttle_disabled = false
+steering_disabled = false

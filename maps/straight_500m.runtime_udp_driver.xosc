@@ -1,0 +1,115 @@
+<?xml version='1.0' encoding='utf-8'?>
+<OpenSCENARIO>
+   <FileHeader revMajor="1" revMinor="1" date="2020-05-12T10:00:00" description="dummy"
+      author="esmini" />
+   <ParameterDeclarations>
+      <ParameterDeclaration name="TargetVehicle" parameterType="string" value="car_red" />
+   </ParameterDeclarations>
+   <CatalogLocations>
+      <VehicleCatalog>
+         <Directory path="../xosc/Catalogs/Vehicles" />
+      </VehicleCatalog>
+      <ControllerCatalog>
+         <Directory path="../xosc/Catalogs/Controllers" />
+      </ControllerCatalog>
+   </CatalogLocations>
+   <RoadNetwork>
+      <LogicFile filepath="../xodr/straight_500m.xodr" />
+      <SceneGraphFile filepath="../models/straight_500m.osgb" />
+   </RoadNetwork>
+   <Entities>
+      <ScenarioObject name="Ego">
+         <Vehicle name="car_white" vehicleCategory="car" model3d="../models/car_white.osgb">
+            <BoundingBox>
+               <Center x="1.4" y="0.0" z="0.9" />
+               <Dimensions width="2.0" length="5.0" height="1.8" />
+            </BoundingBox>
+            <Performance maxSpeed="69" maxDeceleration="30" maxAcceleration="10" />
+            <Axles>
+               <FrontAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="2.98"
+                  positionZ="0.4" />
+               <RearAxle maxSteering="30" wheelDiameter="0.8" trackWidth="1.68" positionX="0"
+                  positionZ="0.4" />
+            </Axles>
+            <Properties>
+               <Property name="model_id" value="0" />
+
+               <Property name="scaleMode" value="ModelToBB" />
+               <Property name="control" value="hybrid" />
+            </Properties>
+         </Vehicle>
+         <ObjectController>
+            <Controller name="RuntimeUDPDriverController">
+               <Properties>
+                  <Property name="esminiController" value="UDPDriverController" />
+                  <Property name="inputMode" value="driverInput" />
+                  <Property name="basePort" value="49950" />
+                  <Property name="port" value="0" />
+                  <Property name="execMode" value="synchronous" />
+               </Properties>
+            </Controller>
+         </ObjectController>
+      </ScenarioObject>
+      <ScenarioObject name="Target">
+         <CatalogReference catalogName="VehicleCatalog" entryName="$TargetVehicle" />
+      </ScenarioObject>
+   </Entities>
+   <Storyboard>
+      <Init>
+         <Actions>
+            <Private entityRef="Ego">
+               <PrivateAction>
+                  <TeleportAction>
+                     <Position>
+                        <WorldPosition x="50.000000000" y="0.000000000" z="0.0" h="0.000000000"
+                           p="0.0" r="0.0" />
+                     </Position>
+                  </TeleportAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <LongitudinalAction>
+                     <SpeedAction>
+                        <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time" />
+                        <SpeedActionTarget>
+                           <AbsoluteTargetSpeed value="0.000000000" />
+                        </SpeedActionTarget>
+                     </SpeedAction>
+                  </LongitudinalAction>
+               </PrivateAction>
+               <PrivateAction>
+                  <ControllerAction>
+                     <ActivateControllerAction longitudinal="true" lateral="true" />
+                  </ControllerAction>
+               </PrivateAction>
+            </Private>
+         </Actions>
+      </Init>
+      <Story name="MyStory">
+         <Act name="DummyAct">
+            <ManeuverGroup maximumExecutionCount="1" name="DummyManueverGroup">
+               <Actors selectTriggeringEntities="false">
+                  <EntityRef entityRef="Ego" />
+               </Actors>
+            </ManeuverGroup>
+            <StartTrigger>
+               <ConditionGroup>
+                  <Condition name="StartTrigger" delay="0" conditionEdge="none">
+                     <ByValueCondition>
+                        <SimulationTimeCondition value="0" rule="greaterThan" />
+                     </ByValueCondition>
+                  </Condition>
+               </ConditionGroup>
+            </StartTrigger>
+         </Act>
+      </Story>
+      <StopTrigger>
+         <ConditionGroup>
+            <Condition name="" delay="0" conditionEdge="none">
+               <ByValueCondition>
+                  <SimulationTimeCondition value="20000" rule="greaterThan" />
+               </ByValueCondition>
+            </Condition>
+         </ConditionGroup>
+      </StopTrigger>
+   </Storyboard>
+</OpenSCENARIO>
