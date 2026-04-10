@@ -1,0 +1,10 @@
+esmini/
+examples/
+__pycache__/
+
+*.csv
+*.log
+*.svg
+*.py[cod]
+
+log.txt
