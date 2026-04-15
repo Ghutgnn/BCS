@@ -43,7 +43,9 @@ class VehicleState:
     z: float
     yaw: float
     speed: float
+    speed_planar: float
     acceleration: float
+    acceleration_planar: float
     vel_x: float
     vel_y: float
     vel_z: float

@@ -127,8 +127,10 @@ Important config groups:
 
 - `ExperimentConfig`
 - `SimulatorInstanceConfig`
+- `ExperimentProfileConfig`
 - `EsminiBackendConfig`
 - `EsminiOptions`
+- `CarlaInitializationConfig`
 - `CarlaOpenDriveGenerationConfig`
 - `CoordinateTransformConfig`
 
@@ -174,6 +176,8 @@ Responsibilities:
 - generate OpenDRIVE world
 - enable synchronous stepping
 - spawn and reset ego vehicle
+- snap/reset the vehicle onto the OpenDRIVE road height
+- optionally use CARLA constant-velocity bootstrap to establish an exact initial speed before the first measured step
 - apply CARLA `VehicleControl`
 - read vehicle state
 
@@ -254,6 +258,15 @@ The CSV always contains:
 - per-simulator state columns
 - `diff_*` columns
 
+For each simulator state, the logger now stores both 3D and planar metrics:
+
+- `*_speed`
+- `*_speed_planar`
+- `*_acceleration`
+- `*_acceleration_planar`
+
+This matters because CARLA can have a transient vertical velocity component during spawn/reset, and 3D speed alone can make a perfectly valid 10 m/s planar start look like `10.001...` m/s.
+
 Important metadata columns:
 
 - `reference_simulator_id`
@@ -264,6 +277,11 @@ Important metadata columns:
 - `candidate_label`
 - `candidate_csv_prefix`
 - `candidate_backend`
+
+Additional diff columns now include:
+
+- `diff_speed_planar`
+- `diff_acceleration_planar`
 
 For the default experiment, the prefixes are still usually:
 
@@ -300,17 +318,59 @@ Important options:
 - `--reference-label LABEL`
 - `--candidate-label LABEL`
 - `--input-mode {series,keyboard}`
+- `--experiment-profile {general,longitudinal_only,lateral_only,coupled_maneuver}`
+- `--profile-strict`
 - `--control-source-space ...`
 - `--control-mapping-strategy ...`
 - `--esmini-backend {simple_vehicle_api,bcs_controller,udp_driver_controller}`
 - `--simple-vehicle-config PATH`
 - `--render-camera`
+- `--carla-snap-to-road-z`
+- `--carla-road-z-offset`
+- `--carla-rest-settle-ticks`
+- `--carla-constant-velocity-bootstrap`
+- `--carla-constant-velocity-warmup-ticks`
 
 Notes:
 
 - comparing two instances of the same simulator is not supported yet by the current CLI/config
 - `--render-carla` remains accepted as an alias of `--render-camera`
 - `udp_driver_controller` remains accepted as a backward-compatible alias of `bcs_controller`
+
+## Experiment Design Notes
+
+### `longitudinal_only`
+
+Use when you want to study throttle/brake response without steering.
+
+Recommended setup:
+
+- `--experiment-profile longitudinal_only`
+- `steer = 0` for every control sample
+- `--init-speed 0`
+
+### `lateral_only`
+
+Use when you want to study steering response without longitudinal actuation during the measured phase.
+
+Recommended setup:
+
+- `--experiment-profile lateral_only`
+- set a positive `--init-speed`
+- keep `throttle = 0`, `brake = 0`, `hand_brake = 0`, `reverse = 0` in the measured control series
+- let CARLA use road-height snapping plus constant-velocity bootstrap during initialization
+
+This is more rigorous than “apply throttle for a while, then start steering”, because the acceleration path itself is one of the simulator mismatches you are trying to avoid.
+
+### `coupled_maneuver`
+
+Use when steering and longitudinal actuation are both part of the experiment.
+
+Recommended setup:
+
+- `--experiment-profile coupled_maneuver`
+- define a control series with synchronized throttle/brake/steer commands
+- treat this as a higher-level behavioral comparison after you have characterized the isolated longitudinal and lateral gaps
 
 ## Typical workflows
 

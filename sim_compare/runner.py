@@ -11,6 +11,7 @@ from sim_compare.control_mapping import (
 )
 from sim_compare.control_spaces import normalize_control_space
 from sim_compare.controls.sources import KeyboardControlSource, SeriesControlSource
+from sim_compare.experiment_profiles import validate_experiment_profile
 from sim_compare.logging import ComparisonCsvLogger
 from sim_compare.maps import build_esmini_search_paths, resolve_map_paths
 from sim_compare.models import InputControlCommand
@@ -57,6 +58,41 @@ class ExperimentRunner:
                 return True
         return False
 
+    def _start_simulators(
+        self,
+        simulators: list[SimulatorAdapter],
+        requested_pose,
+    ) -> None:
+        carla_adapter = next(
+            (
+                simulator
+                for simulator in simulators
+                if simulator.descriptor.simulator_id == "carla"
+            ),
+            None,
+        )
+        esmini_adapter = next(
+            (
+                simulator
+                for simulator in simulators
+                if simulator.descriptor.simulator_id == "esmini"
+            ),
+            None,
+        )
+        if carla_adapter is not None and esmini_adapter is not None:
+            carla_adapter.start(requested_pose)
+            measurement_pose = (
+                carla_adapter.get_measurement_start_pose() or requested_pose
+            )
+            for simulator in simulators:
+                if simulator is carla_adapter:
+                    continue
+                simulator.start(measurement_pose)
+            return
+
+        for simulator in simulators:
+            simulator.start(requested_pose)
+
     def run(self) -> int:
         cfg = self.config
         control_source_space = normalize_control_space(cfg.control_source_space)
@@ -84,6 +120,21 @@ class ExperimentRunner:
                 file=sys.stderr,
             )
             return 2
+
+        profile_messages = validate_experiment_profile(
+            cfg.experiment_profile.mode,
+            cfg.initial_pose,
+            cfg.input_mode,
+            cfg.control_csv,
+        )
+        if profile_messages:
+            for message in profile_messages:
+                print(
+                    f"Experiment profile [{cfg.experiment_profile.mode}]: {message}",
+                    file=sys.stderr,
+                )
+            if cfg.experiment_profile.strict:
+                return 2
 
         try:
             map_paths = resolve_map_paths(cfg.project_root, cfg.map_name)
@@ -150,8 +201,10 @@ class ExperimentRunner:
 
             reference, candidate = self._build_simulators(map_paths, search_paths)
             simulators = [reference, candidate]
+            self._start_simulators(simulators, cfg.initial_pose)
             for simulator in simulators:
-                simulator.start(cfg.initial_pose)
+                for note in simulator.get_initialization_notes():
+                    print(f"Initialization note: {note}")
 
             if render_camera:
                 render_target = next(
@@ -196,6 +249,30 @@ class ExperimentRunner:
             )
             initial_reference_state = reference.get_state(0.0)
             initial_candidate_state = candidate.get_state(0.0)
+            if "carla" in {
+                reference.descriptor.simulator_id,
+                candidate.descriptor.simulator_id,
+            }:
+                carla_state = (
+                    initial_reference_state
+                    if reference.descriptor.simulator_id == "carla"
+                    else initial_candidate_state
+                )
+                carla_dx = carla_state.x - cfg.initial_pose.x
+                carla_dy = carla_state.y - cfg.initial_pose.y
+                carla_speed_error = carla_state.speed_planar - cfg.initial_pose.speed
+                if (
+                    abs(carla_dx) > 1e-4
+                    or abs(carla_dy) > 1e-4
+                    or abs(carla_speed_error) > 1e-4
+                ):
+                    print(
+                        "Initialization note: "
+                        f"carla_start(x={carla_state.x:.6f}, y={carla_state.y:.6f}, "
+                        f"speed2d={carla_state.speed_planar:.6f}) "
+                        f"requested(x={cfg.initial_pose.x:.6f}, y={cfg.initial_pose.y:.6f}, "
+                        f"speed2d={cfg.initial_pose.speed:.6f})"
+                    )
             initial_diffs = csv_logger.write(
                 0,
                 initial_input_control,
@@ -209,7 +286,9 @@ class ExperimentRunner:
 
             sum_abs_pos = initial_diffs["diff_pos_2d"]
             sum_abs_speed = abs(initial_diffs["diff_speed"])
+            sum_abs_speed_planar = abs(initial_diffs["diff_speed_planar"])
             sum_abs_accel = abs(initial_diffs["diff_acceleration"])
+            sum_abs_accel_planar = abs(initial_diffs["diff_acceleration_planar"])
             max_pos = initial_diffs["diff_pos_2d"]
             steps_done = 1
             sim_time_s = 0.0
@@ -268,7 +347,9 @@ class ExperimentRunner:
                 )
                 sum_abs_pos += diffs["diff_pos_2d"]
                 sum_abs_speed += abs(diffs["diff_speed"])
+                sum_abs_speed_planar += abs(diffs["diff_speed_planar"])
                 sum_abs_accel += abs(diffs["diff_acceleration"])
+                sum_abs_accel_planar += abs(diffs["diff_acceleration_planar"])
                 max_pos = max(max_pos, diffs["diff_pos_2d"])
                 steps_done += 1
 
@@ -284,8 +365,8 @@ class ExperimentRunner:
                         f"str={current_control.steer:.2f}, "
                         f"rev={int(current_control.reverse)}) "
                         f"diff(pos2d={diffs['diff_pos_2d']:.3f}m, "
-                        f"speed={diffs['diff_speed']:.3f}m/s, "
-                        f"accel={diffs['diff_acceleration']:.3f}m/s^2)"
+                        f"speed2d={diffs['diff_speed_planar']:.3f}m/s, "
+                        f"accel2d={diffs['diff_acceleration_planar']:.3f}m/s^2)"
                     )
 
                 if display is not None:
@@ -314,8 +395,8 @@ class ExperimentRunner:
                             (
                                 "diff: "
                                 f"pos2d={diffs['diff_pos_2d']:.3f}m "
-                                f"speed={diffs['diff_speed']:.3f}m/s "
-                                f"acc={diffs['diff_acceleration']:.3f}m/s^2"
+                                f"speed2d={diffs['diff_speed_planar']:.3f}m/s "
+                                f"acc2d={diffs['diff_acceleration_planar']:.3f}m/s^2"
                             ),
                         ]
                     )
@@ -347,8 +428,10 @@ class ExperimentRunner:
                     f"steps={steps_done}, "
                     f"mean|pos2d|={sum_abs_pos / steps_done:.4f} m, "
                     f"max|pos2d|={max_pos:.4f} m, "
-                    f"mean|speed|={sum_abs_speed / steps_done:.4f} m/s, "
-                    f"mean|accel|={sum_abs_accel / steps_done:.4f} m/s^2"
+                    f"mean|speed3d|={sum_abs_speed / steps_done:.4f} m/s, "
+                    f"mean|speed2d|={sum_abs_speed_planar / steps_done:.4f} m/s, "
+                    f"mean|accel3d|={sum_abs_accel / steps_done:.4f} m/s^2, "
+                    f"mean|accel2d|={sum_abs_accel_planar / steps_done:.4f} m/s^2"
                 )
             return 0
         finally:

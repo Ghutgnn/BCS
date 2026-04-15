@@ -22,6 +22,20 @@ class CarlaOpenDriveGenerationConfig:
 
 
 @dataclass
+class CarlaInitializationConfig:
+    snap_to_road_z: bool = True
+    road_z_offset: float = 0.20
+    rest_settle_ticks: int = 15
+    constant_velocity_bootstrap: bool = True
+    constant_velocity_warmup_ticks: int = 1
+    readiness_check_enabled: bool = True
+    readiness_max_ticks: int = 300
+    readiness_consecutive_ticks: int = 20
+    readiness_vertical_speed_tolerance: float = 0.02
+    readiness_planar_speed_tolerance: float = 0.05
+
+
+@dataclass
 class EsminiOptions:
     use_viewer: int = 1
     disable_controller: int = 1
@@ -46,6 +60,12 @@ class EsminiBackendConfig:
 class SimulatorInstanceConfig:
     simulator_id: str
     label: str
+
+
+@dataclass
+class ExperimentProfileConfig:
+    mode: str = "general"
+    strict: bool = False
 
 
 @dataclass
@@ -78,8 +98,14 @@ class ExperimentConfig:
     coordinate_transform: CoordinateTransformConfig = field(
         default_factory=CoordinateTransformConfig
     )
+    experiment_profile: ExperimentProfileConfig = field(
+        default_factory=ExperimentProfileConfig
+    )
     carla_opendrive: CarlaOpenDriveGenerationConfig = field(
         default_factory=CarlaOpenDriveGenerationConfig
+    )
+    carla_initialization: CarlaInitializationConfig = field(
+        default_factory=CarlaInitializationConfig
     )
     esmini_options: EsminiOptions = field(default_factory=EsminiOptions)
     esmini_backend: EsminiBackendConfig = field(default_factory=EsminiBackendConfig)

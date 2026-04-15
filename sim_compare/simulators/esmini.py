@@ -20,6 +20,12 @@ class EsminiSimulatorAdapter:
         self.bridge.set_initial_pose(initial_pose)
         self.bridge.start()
 
+    def get_measurement_start_pose(self) -> InitialPose | None:
+        return None
+
+    def get_initialization_notes(self) -> list[str]:
+        return []
+
     def step(
         self,
         control: AppliedControlCommand,

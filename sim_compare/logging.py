@@ -51,7 +51,9 @@ STATE_SUFFIXES = [
     "z",
     "yaw",
     "speed",
+    "speed_planar",
     "acceleration",
+    "acceleration_planar",
     "vel_x",
     "vel_y",
     "vel_z",
@@ -67,7 +69,9 @@ DIFF_FIELDS = [
     "diff_z",
     "diff_yaw",
     "diff_speed",
+    "diff_speed_planar",
     "diff_acceleration",
+    "diff_acceleration_planar",
     "diff_pos_2d",
     "diff_pos_3d",
 ]
@@ -104,8 +108,15 @@ def compute_state_differences(
         "diff_z": diff_z,
         "diff_yaw": normalize_yaw_rad(reference_state.yaw - candidate_state.yaw),
         "diff_speed": reference_state.speed - candidate_state.speed,
+        "diff_speed_planar": (
+            reference_state.speed_planar - candidate_state.speed_planar
+        ),
         "diff_acceleration": (
             reference_state.acceleration - candidate_state.acceleration
+        ),
+        "diff_acceleration_planar": (
+            reference_state.acceleration_planar
+            - candidate_state.acceleration_planar
         ),
         "diff_pos_2d": math.sqrt(diff_x * diff_x + diff_y * diff_y),
         "diff_pos_3d": math.sqrt(diff_x * diff_x + diff_y * diff_y + diff_z * diff_z),
@@ -157,7 +168,9 @@ class ComparisonCsvLogger:
             f"{prefix}_z": f"{state.z:.6f}",
             f"{prefix}_yaw": f"{state.yaw:.6f}",
             f"{prefix}_speed": f"{state.speed:.6f}",
+            f"{prefix}_speed_planar": f"{state.speed_planar:.6f}",
             f"{prefix}_acceleration": f"{state.acceleration:.6f}",
+            f"{prefix}_acceleration_planar": f"{state.acceleration_planar:.6f}",
             f"{prefix}_vel_x": f"{state.vel_x:.6f}",
             f"{prefix}_vel_y": f"{state.vel_y:.6f}",
             f"{prefix}_vel_z": f"{state.vel_z:.6f}",
@@ -208,7 +221,9 @@ class ComparisonCsvLogger:
                 "diff_z": f"{diffs['diff_z']:.6f}",
                 "diff_yaw": f"{diffs['diff_yaw']:.6f}",
                 "diff_speed": f"{diffs['diff_speed']:.6f}",
+                "diff_speed_planar": f"{diffs['diff_speed_planar']:.6f}",
                 "diff_acceleration": f"{diffs['diff_acceleration']:.6f}",
+                "diff_acceleration_planar": f"{diffs['diff_acceleration_planar']:.6f}",
                 "diff_pos_2d": f"{diffs['diff_pos_2d']:.6f}",
                 "diff_pos_3d": f"{diffs['diff_pos_3d']:.6f}",
             }

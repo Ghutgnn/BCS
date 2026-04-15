@@ -19,6 +19,15 @@ class CarlaSimulatorAdapter:
     def start(self, initial_pose: InitialPose) -> None:
         self.bridge.spawn_vehicle(initial_pose)
 
+    def get_measurement_start_pose(self) -> InitialPose | None:
+        return self.bridge.get_measurement_start_pose()
+
+    def get_initialization_notes(self) -> list[str]:
+        ticks = self.bridge.get_last_readiness_ticks()
+        if ticks <= 0:
+            return []
+        return [f"carla readiness gate consumed {ticks} non-recorded ticks"]
+
     def step(
         self,
         control: AppliedControlCommand,

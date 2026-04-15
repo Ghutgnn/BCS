@@ -26,6 +26,11 @@ SIMULATOR_COLORS = [
 ]
 
 
+def _speed_field_name(row: dict[str, float | str], prefix: str) -> str:
+    planar_name = f"{prefix}_speed_planar"
+    return planar_name if planar_name in row else f"{prefix}_speed"
+
+
 def _parse_rows(csv_path: Path) -> list[dict[str, float | str]]:
     rows: list[dict[str, float | str]] = []
     with csv_path.open("r", newline="", encoding="utf-8") as handle:
@@ -33,12 +38,14 @@ def _parse_rows(csv_path: Path) -> list[dict[str, float | str]]:
         for row in reader:
             parsed: dict[str, float | str] = {}
             for key, value in row.items():
-                if key is None or value in (None, ""):
+                normalized_key = key.strip() if key is not None else None
+                normalized_value = value.strip() if isinstance(value, str) else value
+                if normalized_key is None or normalized_value in (None, ""):
                     continue
                 try:
-                    parsed[key] = float(value)
+                    parsed[normalized_key] = float(normalized_value)
                 except ValueError:
-                    parsed[key] = value
+                    parsed[normalized_key] = normalized_value
             rows.append(parsed)
     return rows
 
@@ -179,7 +186,9 @@ def _build_segments(
         row_b = rows[idx + 1]
         x1, y1 = project(row_a[f"{prefix}_x"], row_a[f"{prefix}_y"])
         x2, y2 = project(row_b[f"{prefix}_x"], row_b[f"{prefix}_y"])
-        avg_speed = 0.5 * (row_a[f"{prefix}_speed"] + row_b[f"{prefix}_speed"])
+        speed_field_a = _speed_field_name(row_a, prefix)
+        speed_field_b = _speed_field_name(row_b, prefix)
+        avg_speed = 0.5 * (row_a[speed_field_a] + row_b[speed_field_b])
         speed_t = 0.0 if max_speed <= 1e-9 else avg_speed / max_speed
         color = _mix_rgb(light_rgb, base_rgb, speed_t)
         parts.append(
@@ -224,8 +233,8 @@ def _build_legend(
     final_diff = rows[-1]["diff_pos_2d"]
     max_speed = max(
         max(
-            row[f"{reference['prefix']}_speed"],
-            row[f"{candidate['prefix']}_speed"],
+            row[_speed_field_name(row, reference["prefix"])],
+            row[_speed_field_name(row, candidate["prefix"])],
         )
         for row in rows
     )
@@ -273,8 +282,8 @@ def render_svg_from_csv(
     project = _make_projector(min_x, max_x, min_y, max_y)
     max_speed = max(
         max(
-            row[f"{reference['prefix']}_speed"],
-            row[f"{candidate['prefix']}_speed"],
+            row[_speed_field_name(row, reference["prefix"])],
+            row[_speed_field_name(row, candidate["prefix"])],
         )
         for row in rows
     )

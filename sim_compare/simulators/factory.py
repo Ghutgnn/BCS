@@ -43,6 +43,7 @@ def _build_carla_adapter(
         dt_s=config.dt,
         coordinate_transform=config.coordinate_transform,
         opendrive_config=config.carla_opendrive,
+        initialization_config=config.carla_initialization,
     )
     return CarlaSimulatorAdapter(bridge=bridge, label=label)
 

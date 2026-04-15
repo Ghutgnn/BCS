@@ -8,10 +8,12 @@ import sys
 from pathlib import Path
 
 from sim_compare.config import (
+    CarlaInitializationConfig,
     CarlaOpenDriveGenerationConfig,
     CoordinateTransformConfig,
     EsminiBackendConfig,
     EsminiOptions,
+    ExperimentProfileConfig,
     ExperimentConfig,
     SimulatorInstanceConfig,
 )
@@ -20,6 +22,10 @@ from sim_compare.control_spaces import SUPPORTED_CONTROL_SPACES, normalize_contr
 from sim_compare.esmini_backend import (
     SUPPORTED_ESMINI_BACKENDS,
     normalize_esmini_backend_mode,
+)
+from sim_compare.experiment_profiles import (
+    SUPPORTED_EXPERIMENT_PROFILES,
+    normalize_experiment_profile,
 )
 from sim_compare.models import InitialPose
 from sim_compare.runner import ExperimentRunner
@@ -117,6 +123,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--control-csv", type=Path, default=None)
     parser.add_argument("--hold-last-control", action="store_true")
     parser.add_argument(
+        "--experiment-profile",
+        choices=sorted(SUPPORTED_EXPERIMENT_PROFILES),
+        default="general",
+        help="Validation profile for reproducible benchmark design",
+    )
+    parser.add_argument(
+        "--profile-strict",
+        action="store_true",
+        help="Fail fast if the selected experiment profile is violated",
+    )
+    parser.add_argument(
         "--control-source-space",
         choices=sorted(SUPPORTED_CONTROL_SPACES),
         default="canonical.actuation",
@@ -153,6 +170,66 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-road-length", type=float, default=500.0)
     parser.add_argument("--wall-height", type=float, default=1.0)
     parser.add_argument("--additional-width", type=float, default=0.6)
+    parser.add_argument(
+        "--carla-snap-to-road-z",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Snap CARLA spawn/reset height to OpenDRIVE road height before the experiment",
+    )
+    parser.add_argument(
+        "--carla-road-z-offset",
+        type=float,
+        default=0.20,
+        help="Vertical safety offset above CARLA road height after snapping",
+    )
+    parser.add_argument(
+        "--carla-rest-settle-ticks",
+        type=int,
+        default=15,
+        help="Number of CARLA sync ticks used to let the vehicle settle on the road before measuring",
+    )
+    parser.add_argument(
+        "--carla-constant-velocity-bootstrap",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use CARLA constant-velocity API to establish a precise initial speed before the first measured step",
+    )
+    parser.add_argument(
+        "--carla-constant-velocity-warmup-ticks",
+        type=int,
+        default=1,
+        help="Number of non-recorded CARLA sync ticks used to materialize the requested initial speed before step 0; the framework will align esmini to the resulting post-bootstrap pose",
+    )
+    parser.add_argument(
+        "--carla-readiness-check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Wait for CARLA state readiness before measurement start instead of relying only on a fixed settle-tick count",
+    )
+    parser.add_argument(
+        "--carla-readiness-max-ticks",
+        type=int,
+        default=300,
+        help="Maximum number of additional non-recorded CARLA ticks used by the readiness gate",
+    )
+    parser.add_argument(
+        "--carla-readiness-consecutive-ticks",
+        type=int,
+        default=20,
+        help="Number of consecutive CARLA ticks that must satisfy readiness tolerances before measurement start",
+    )
+    parser.add_argument(
+        "--carla-readiness-vertical-speed-tol",
+        type=float,
+        default=0.02,
+        help="Absolute vertical-speed tolerance for CARLA measurement readiness",
+    )
+    parser.add_argument(
+        "--carla-readiness-planar-speed-tol",
+        type=float,
+        default=0.05,
+        help="Absolute planar-speed tolerance for CARLA measurement readiness",
+    )
     return parser.parse_args()
 
 
@@ -171,6 +248,7 @@ def main() -> int:
             simple_vehicle_config = simple_vehicle_config.resolve()
     normalized_esmini_backend = normalize_esmini_backend_mode(args.esmini_backend)
     normalized_control_source_space = normalize_control_space(args.control_source_space)
+    normalized_experiment_profile = normalize_experiment_profile(args.experiment_profile)
     reference_simulator = normalize_simulator_id(args.reference_simulator)
     candidate_simulator = normalize_simulator_id(args.candidate_simulator)
 
@@ -213,11 +291,37 @@ def main() -> int:
             yaw_sign=float(args.yaw_sign),
             yaw_offset_deg=float(args.yaw_offset_deg),
         ),
+        experiment_profile=ExperimentProfileConfig(
+            mode=normalized_experiment_profile,
+            strict=bool(args.profile_strict),
+        ),
         carla_opendrive=CarlaOpenDriveGenerationConfig(
             vertex_distance=float(args.vertex_distance),
             max_road_length=float(args.max_road_length),
             wall_height=float(args.wall_height),
             additional_width=float(args.additional_width),
+        ),
+        carla_initialization=CarlaInitializationConfig(
+            snap_to_road_z=bool(args.carla_snap_to_road_z),
+            road_z_offset=float(args.carla_road_z_offset),
+            rest_settle_ticks=int(args.carla_rest_settle_ticks),
+            constant_velocity_bootstrap=bool(
+                args.carla_constant_velocity_bootstrap
+            ),
+            constant_velocity_warmup_ticks=int(
+                args.carla_constant_velocity_warmup_ticks
+            ),
+            readiness_check_enabled=bool(args.carla_readiness_check),
+            readiness_max_ticks=int(args.carla_readiness_max_ticks),
+            readiness_consecutive_ticks=int(
+                args.carla_readiness_consecutive_ticks
+            ),
+            readiness_vertical_speed_tolerance=float(
+                args.carla_readiness_vertical_speed_tol
+            ),
+            readiness_planar_speed_tolerance=float(
+                args.carla_readiness_planar_speed_tol
+            ),
         ),
         esmini_options=EsminiOptions(
             use_viewer=int(args.esmini_viewer),

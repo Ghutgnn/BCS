@@ -22,6 +22,12 @@ class SimulatorAdapter(Protocol):
     def start(self, initial_pose: InitialPose) -> None:
         ...
 
+    def get_measurement_start_pose(self) -> InitialPose | None:
+        ...
+
+    def get_initialization_notes(self) -> list[str]:
+        ...
+
     def step(
         self,
         control: AppliedControlCommand,
